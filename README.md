@@ -2,7 +2,7 @@
 
 바탕화면 위젯에서 오늘 할 일을 바로 추가하고 체크하는 안드로이드 앱입니다.
 
-## 다운로드 (최신 버전: 6)
+## 다운로드 (최신 버전: 7)
 
 **[FranklinPlanner.apk 받기](https://github.com/neotech67etkim/franklin-planner-releases/raw/main/FranklinPlanner.apk)**
 
