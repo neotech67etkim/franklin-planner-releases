@@ -16,6 +16,7 @@
       <button data-tab="notebook">기록</button>
       <button data-tab="compass">가치·목표</button>
       <button data-tab="recurring">반복 업무</button>
+      <button data-tab="family">가족</button>
     </nav>
     <div class="account" id="account"></div>
   </header>
@@ -68,6 +69,11 @@
             <input id="appt-title" placeholder="일정 추가 (Enter)" autocomplete="off">
             <button class="primary small">추가</button>
           </form>
+        </section>
+
+        <section class="card" id="family-card" hidden>
+          <div class="card-head"><h2>가족</h2><button class="ghost small" data-goto="family">전체 보기</button></div>
+          <div id="family-today"></div>
         </section>
 
         <section class="card" id="week-card">
@@ -197,6 +203,59 @@
       <p class="hint">정한 날 자정이 지나면 폰 앱이 오늘 할 일에 새로 만듭니다(↻). 매주 업무는 끝낼 때까지 그 주 동안 매일 오늘로 넘어옵니다.</p>
       <div id="recurring-list"></div>
     </section>
+  </main>
+
+  <main id="family-view" class="page" hidden>
+    <section class="card narrow" id="family-connect" hidden>
+      <h2>가족과 함께 쓰기</h2>
+      <p>각자의 플래너는 그대로 두고, 가족 할 일·가족 일정·장보기 목록만 함께 봅니다.
+        한 사람이 '가족 만들기'로 코드를 받고, 다른 사람이 그 코드로 참여하면 연결됩니다.</p>
+      <label>가족에게 보일 내 이름 (예: 남편, 아내)<input id="fam-name" class="field"></label>
+      <p><button id="fam-create" class="primary">가족 만들기 (코드 받기)</button></p>
+      <label>또는 받은 코드로 참여<input id="fam-code" class="field" placeholder="예: K7Q2-9XMB"></label>
+      <p><button id="fam-join" class="ghost">참여</button></p>
+      <p id="fam-error" class="error"></p>
+    </section>
+    <div id="family-main" hidden>
+      <section class="card fam-head">
+        <div><strong id="fam-members"></strong><div class="hint">가족 코드 <b id="fam-code-show"></b> — 가족에게 알려 주세요</div></div>
+        <div><button class="ghost small" id="fam-rename">내 이름 바꾸기</button> <button class="ghost small danger" id="fam-leave">가족에서 나가기</button></div>
+      </section>
+      <div class="columns">
+        <div class="col">
+          <section class="card">
+            <h2>가족 할 일</h2>
+            <form class="addrow" id="fam-task-form">
+              <select id="fam-task-who"></select>
+              <input id="fam-task-text" placeholder="가족 할 일 추가 (Enter)" autocomplete="off">
+              <button class="primary small">추가</button>
+            </form>
+            <div id="fam-tasks"></div>
+          </section>
+          <section class="card">
+            <h2>장보기·메모</h2>
+            <form class="addrow" id="fam-shop-form">
+              <input id="fam-shop-text" placeholder="장볼 것·메모 추가 (Enter)" autocomplete="off">
+              <button class="primary small">추가</button>
+            </form>
+            <div id="fam-shop"></div>
+          </section>
+        </div>
+        <div class="col">
+          <section class="card">
+            <h2>가족 일정</h2>
+            <form class="addrow wrap" id="fam-event-form">
+              <input type="date" id="fam-event-date" required>
+              <input type="time" id="fam-event-time" title="비우면 종일">
+              <select id="fam-event-who"></select>
+              <input id="fam-event-text" placeholder="일정 내용 (Enter)" autocomplete="off">
+              <button class="primary small">추가</button>
+            </form>
+            <div id="fam-events"></div>
+          </section>
+        </div>
+      </div>
+    </div>
   </main>
 
   <dialog id="modal">

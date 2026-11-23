@@ -5,7 +5,7 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, onSnapshot, setDoc,
+  getFirestore, collection, doc, onSnapshot, setDoc, getDoc, updateDoc, addDoc, deleteDoc, arrayUnion, arrayRemove,
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -36,7 +36,7 @@ const SAW_FULL = [
 ];
 const ISO_DAY = { 1: "월", 2: "화", 3: "수", 4: "목", 5: "금", 6: "토", 7: "일" };
 const WEEK_ORDER = [7, 1, 2, 3, 4, 5, 6];
-const VIEWS = { day: "day-view", week: "week-view", month: "month-view", notebook: "notebook-view", compass: "compass-view", recurring: "recurring-view" };
+const VIEWS = { family: "family-view", day: "day-view", week: "week-view", month: "month-view", notebook: "notebook-view", compass: "compass-view", recurring: "recurring-view" };
 const DOW = "일월화수목금토";
 
 const state = {
@@ -50,6 +50,9 @@ const state = {
   editingNote: false,
   nbOnlyOpen: false,
   unsubs: [],
+  family: null, // { id, members, names }
+  familyItems: [],
+  familyUnsubs: [],
 };
 
 // ---------- dates ----------
@@ -144,6 +147,10 @@ onAuthStateChanged(auth, (user) => {
     });
     render();
   }));
+  state.unsubs.push(onSnapshot(doc(db, "users", user.uid, "meta", "family"), (d) => {
+    switchFamily(d.exists() ? d.data().familyId : null);
+  }));
+  state.unsubs.push(() => switchFamily(null));
   state.unsubs.push(onSnapshot(doc(db, "users", user.uid, "meta", "main"), (d) => {
     if (d.exists() && !d.metadata.hasPendingWrites) {
       try { state.meta = JSON.parse(d.data().json); } catch { /* ignore */ }
@@ -175,7 +182,7 @@ document.addEventListener("keydown", (e) => {
 // ---------- rendering ----------
 function render() {
   if (!state.uid) return;
-  ({ day: renderDay, week: renderWeek, month: renderMonth, notebook: renderNotebook,
+  ({ family: renderFamily, day: renderDay, week: renderWeek, month: renderMonth, notebook: renderNotebook,
     compass: renderCompass, recurring: renderRecurring })[state.tab]();
 }
 
@@ -219,6 +226,7 @@ function renderDay() {
   ).join("") || `<p class="hint">일정이 없습니다.</p>`;
 
   renderWeekGoals();
+  renderFamilyToday(date);
 
   if (!state.editingNote) $("note-view").innerHTML = noteHtml(day.note);
   $("note-view").hidden = state.editingNote;
@@ -564,6 +572,7 @@ function renderWeek() {
 $("week-prev").onclick = () => { state.week = addDays(state.week, -7); renderWeek(); };
 $("week-next").onclick = () => { state.week = addDays(state.week, 7); renderWeek(); };
 $("week-this").onclick = () => { state.week = weekStart(iso(new Date())); renderWeek(); };
+$("day-view").addEventListener("click", (e) => { if (e.target.dataset.goto) showTab(e.target.dataset.goto); });
 $("week-strip").addEventListener("click", (e) => { const go = e.target.closest("[data-go]")?.dataset.go; if (go) goTo(go); });
 $("week-view").addEventListener("click", (e) => {
   if (e.target.dataset.goto) { e.preventDefault(); showTab(e.target.dataset.goto); return; }
@@ -807,3 +816,163 @@ $("recurring-list").addEventListener("change", (e) => {
   const id = Number(e.target.closest("[data-rcid]").dataset.rcid);
   updateMeta((m) => { const r = m.recurring.find((x) => x.id === id); if (r) r.active = e.target.checked; });
 });
+
+// ---------- family (shared with the family members) ----------
+const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+let familyId = null;
+function switchFamily(id) {
+  if (id === familyId) return;
+  state.familyUnsubs.forEach((u) => u());
+  state.familyUnsubs = [];
+  familyId = id;
+  state.family = null;
+  state.familyItems = [];
+  if (id) {
+    state.familyUnsubs.push(onSnapshot(doc(db, "families", id), (d) => {
+      state.family = d.exists() ? { id, members: d.data().members || [], names: d.data().names || {} } : null;
+      render();
+    }));
+    state.familyUnsubs.push(onSnapshot(collection(db, "families", id, "items"), (snap) => {
+      state.familyItems = snap.docs.map((x) => ({ id: x.id, ...x.data() }));
+      render();
+    }));
+  }
+  render();
+}
+const famName = (uid) => state.family?.names?.[uid] || "가족";
+const famWho = (uid) => (uid ? famName(uid) : "같이");
+const showCode = (c) => (c.length === 8 ? c.slice(0, 4) + "-" + c.slice(4) : c);
+function familyTaskList() {
+  const weekAgo = Date.now() - 7 * 864e5;
+  const t = state.familyItems.filter((i) => i.type === "task");
+  return [...t.filter((i) => !i.done).sort((a, b) => a.createdAt - b.createdAt),
+    ...t.filter((i) => i.done && i.doneAt > weekAgo).sort((a, b) => b.doneAt - a.doneAt)];
+}
+function famRow(i, { showDate = false } = {}) {
+  const today = iso(new Date());
+  const sub = [];
+  if (showDate && i.date) sub.push(label(i.date));
+  if (i.type !== "shop") sub.push(`담당: ${famWho(i.assignee)}`);
+  if (i.done && i.doneBy) sub.push(`완료: ${famName(i.doneBy)}`);
+  else if (i.createdBy && i.type !== "event") sub.push(`${famName(i.createdBy)} 추가`);
+  const lead = i.type === "event"
+    ? `<span class="ftime">${esc(i.time || "종일")}</span>`
+    : `<input type="checkbox" data-fact="toggle" ${i.done ? "checked" : ""}>`;
+  return `<div class="row ${i.done ? "done" : ""} ${i.type === "event" && i.date < today ? "past" : ""}" data-fid="${i.id}">
+    ${lead}<div class="grow"><span>${esc(i.text)}</span><small>${esc(sub.join(" · "))}</small></div>
+    <div class="actions"><button class="icon" data-fact="del" title="삭제">✕</button></div></div>`;
+}
+function whoOptions() {
+  return `<option value="">같이</option>` + (state.family?.members || []).map((u) => `<option value="${u}">${esc(famName(u))}</option>`).join("");
+}
+function renderFamily() {
+  const fam = state.family;
+  $("family-connect").hidden = !!fam;
+  $("family-main").hidden = !fam;
+  if (!fam) return;
+  $("fam-members").textContent = fam.members.map(famName).join(" · ");
+  $("fam-code-show").textContent = showCode(fam.id);
+  for (const id of ["fam-task-who", "fam-event-who"]) {
+    const sel = $(id);
+    const v = sel.value;
+    sel.innerHTML = whoOptions();
+    sel.value = v;
+  }
+  if (!$("fam-event-date").value) $("fam-event-date").value = iso(new Date());
+  $("fam-tasks").innerHTML = familyTaskList().map((i) => famRow(i)).join("") || `<p class="hint">함께 챙길 일을 추가해 보세요.</p>`;
+  const shop = state.familyItems.filter((i) => i.type === "shop");
+  const open = shop.filter((i) => !i.done).sort((a, b) => a.createdAt - b.createdAt);
+  const done = shop.filter((i) => i.done).sort((a, b) => b.doneAt - a.doneAt);
+  $("fam-shop").innerHTML = [...open, ...done].map((i) => famRow(i)).join("") +
+    (done.length ? `<p><button class="ghost small" id="fam-clear">산 것 ${done.length}개 지우기</button></p>` : "") ||
+    `<p class="hint">우유, 세제, 아이 준비물 … 생각날 때 바로 적어 두세요.</p>`;
+  const today = iso(new Date());
+  const ev = state.familyItems.filter((i) => i.type === "event");
+  const upcoming = ev.filter((i) => i.date >= today).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const past = ev.filter((i) => i.date < today).sort((a, b) => (b.date + a.time).localeCompare(a.date + b.time)).slice(0, 10);
+  $("fam-events").innerHTML = (upcoming.map((i) => famRow(i, { showDate: true })).join("") || `<p class="hint">다가오는 가족 일정이 없습니다.</p>`) +
+    (past.length ? `<h3 class="wg-area">지난 일정</h3>` + past.map((i) => famRow(i, { showDate: true })).join("") : "");
+}
+function renderFamilyToday(date) {
+  const fam = state.family;
+  $("family-card").hidden = !fam;
+  if (!fam) return;
+  const events = state.familyItems.filter((i) => i.type === "event" && i.date === date).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  const tasks = familyTaskList().filter((i) => !i.done).slice(0, 5);
+  $("family-today").innerHTML = [...events, ...tasks].map((i) => famRow(i)).join("") ||
+    `<p class="hint">오늘 가족 일정과 남은 가족 할 일이 없습니다.</p>`;
+}
+function famItemsRef() { return collection(db, "families", familyId, "items"); }
+function famAdd(type, text, assignee = "", date = "", time = "") {
+  if (!familyId) return;
+  addDoc(famItemsRef(), {
+    type, text, date, time, assignee, done: false, doneBy: "", createdBy: state.uid, createdAt: Date.now(), doneAt: 0,
+  }).catch((e) => toast("저장 실패: " + e.message));
+}
+document.addEventListener("click", (e) => {
+  const act = e.target.dataset.fact;
+  const row = e.target.closest("[data-fid]");
+  if (act === "del" && row && confirm("삭제할까요?")) deleteDoc(doc(db, "families", familyId, "items", row.dataset.fid));
+  if (e.target.id === "fam-clear") {
+    state.familyItems.filter((i) => i.type === "shop" && i.done).forEach((i) => deleteDoc(doc(db, "families", familyId, "items", i.id)));
+  }
+});
+document.addEventListener("change", (e) => {
+  if (e.target.dataset.fact !== "toggle") return;
+  const id = e.target.closest("[data-fid]").dataset.fid;
+  const done = e.target.checked;
+  updateDoc(doc(db, "families", familyId, "items", id), { done, doneBy: done ? state.uid : "", doneAt: done ? Date.now() : 0 });
+});
+$("fam-task-form").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("fam-task-text").value.trim();
+  if (!text) return;
+  famAdd("task", text, $("fam-task-who").value);
+  $("fam-task-text").value = "";
+};
+$("fam-shop-form").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("fam-shop-text").value.trim();
+  if (!text) return;
+  famAdd("shop", text);
+  $("fam-shop-text").value = "";
+};
+$("fam-event-form").onsubmit = (e) => {
+  e.preventDefault();
+  const text = $("fam-event-text").value.trim();
+  const date = $("fam-event-date").value;
+  if (!text || !date) return;
+  famAdd("event", text, $("fam-event-who").value, date, $("fam-event-time").value);
+  $("fam-event-text").value = "";
+};
+async function famConnect(join) {
+  $("fam-error").textContent = "";
+  const name = $("fam-name").value.trim() || "가족";
+  try {
+    let id;
+    if (join) {
+      id = $("fam-code").value.toUpperCase().split("").filter((c) => CODE_CHARS.includes(c)).join("");
+      if (id.length !== 8) throw new Error("코드는 8자리입니다 (예: K7Q2-9XMB)");
+      const ref = doc(db, "families", id);
+      if (!(await getDoc(ref)).exists()) throw new Error("그 코드의 가족을 찾을 수 없습니다");
+      await updateDoc(ref, { members: arrayUnion(state.uid), [`names.${state.uid}`]: name });
+    } else {
+      id = Array.from({ length: 8 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join("");
+      await setDoc(doc(db, "families", id), { members: [state.uid], names: { [state.uid]: name }, createdAt: Date.now() });
+    }
+    await setDoc(doc(db, "users", state.uid, "meta", "family"), { familyId: id });
+  } catch (e) {
+    $("fam-error").textContent = e.message;
+  }
+}
+$("fam-create").onclick = () => famConnect(false);
+$("fam-join").onclick = () => famConnect(true);
+$("fam-rename").onclick = () => {
+  const name = prompt("가족에게 보일 내 이름", famName(state.uid));
+  if (name && name.trim()) updateDoc(doc(db, "families", familyId), { [`names.${state.uid}`]: name.trim() });
+};
+$("fam-leave").onclick = async () => {
+  if (!confirm("가족에서 나갈까요? 같은 코드로 다시 참여할 수 있습니다.")) return;
+  await updateDoc(doc(db, "families", familyId), { members: arrayRemove(state.uid) }).catch(() => {});
+  await deleteDoc(doc(db, "users", state.uid, "meta", "family"));
+};

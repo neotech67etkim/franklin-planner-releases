@@ -211,3 +211,12 @@ dialog input:not([type=checkbox]), dialog select, dialog textarea {
 .modal-actions .spacer { flex: 1; }
 .danger { color: var(--a) !important; }
 .switch { width: 18px; height: 18px; accent-color: var(--brand); }
+
+.field { display: block; width: 100%; margin-top: 4px; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 8px 10px; color: var(--ink); font-size: 15px; }
+.fam-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+.addrow.wrap { flex-wrap: wrap; }
+.addrow.wrap #fam-event-text { flex: 1 1 200px; }
+.fam-sub { color: var(--muted); font-size: 12px; }
+.ftime { color: var(--ok); font-weight: 800; width: 52px; flex: none; }
+.past { opacity: .55; }
+.addrow.wrap input[type=date] { min-width: 150px; }
