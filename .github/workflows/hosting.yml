@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -49,6 +51,10 @@ jobs:
           PY
           openssl pkey -in "$RUNNER_TEMP/pk.pem" -noout && echo "private key OK" || echo "::error::private key is damaged - register the key again"
           rm -f "$RUNNER_TEMP/pk.pem"
+
+      # Only the web planner's own files are published.
+      - name: Collect site files
+        run: mkdir public && cp index.html app.js style.css public/
 
       - name: Deploy
         run: npx --yes firebase-tools@13 deploy --only hosting --project franklin-planner-b419a --non-interactive
