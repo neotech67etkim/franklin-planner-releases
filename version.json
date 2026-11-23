@@ -1,5 +1,5 @@
 {
-  "versionCode": 13,
+  "versionCode": 14,
   "url": "https://github.com/neotech67etkim/franklin-planner-releases/raw/main/FranklinPlanner.apk",
-  "notes": "일정 알림, 아침 브리핑, 저녁 반성 알림, 가족 새 항목 알림, 앱 안 업데이트"
+  "notes": "가족 탭 추가 (가족 할 일·일정·장보기), 오늘 화면에 장보기 표시, 주간·월간에 가족 일정 표시"
 }
