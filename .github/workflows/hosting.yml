@@ -16,11 +16,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Needs the FIREBASE_SERVICE_ACCOUNT secret: the JSON key of a service account
-      # of the franklin-planner-b419a project.
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - uses: actions/setup-node@v4
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: franklin-planner-b419a
-          channelId: live
+          node-version: '20'
+
+      # FIREBASE_SERVICE_ACCOUNT holds the project's service-account JSON key. A key
+      # pasted through some editors gets raw line breaks inside its strings, so it is
+      # parsed leniently and written back out as clean JSON.
+      - name: Write service account key
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          key = json.loads(os.environ["SA"], strict=False)
+          path = os.path.join(os.environ["RUNNER_TEMP"], "sa.json")
+          with open(path, "w") as f:
+              json.dump(key, f)
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"GOOGLE_APPLICATION_CREDENTIALS={path}\n")
+          print("key for", key.get("client_email", "?").split("@")[0])
+          PY
+
+      - name: Deploy
+        run: npx --yes firebase-tools@13 deploy --only hosting --project franklin-planner-b419a --non-interactive
