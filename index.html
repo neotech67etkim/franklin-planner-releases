@@ -10,8 +10,12 @@
   <header class="topbar">
     <div class="brand">프랭클린 플래너</div>
     <nav class="tabs" id="tabs" hidden>
-      <button data-tab="day" class="active">하루 정리</button>
-      <button data-tab="notebook">기록 수첩</button>
+      <button data-tab="day" class="active">오늘</button>
+      <button data-tab="week">주간</button>
+      <button data-tab="month">월간</button>
+      <button data-tab="notebook">기록</button>
+      <button data-tab="compass">가치·목표</button>
+      <button data-tab="recurring">반복 업무</button>
     </nav>
     <div class="account" id="account"></div>
   </header>
@@ -109,6 +113,104 @@
     </section>
     <div id="nb-list"></div>
   </main>
+
+  <main id="week-view" class="page" hidden>
+    <section class="datebar">
+      <button id="week-prev" title="이전 주">◀</button>
+      <div class="datetitle"><div id="week-label"></div></div>
+      <button id="week-next" title="다음 주">▶</button>
+      <button id="week-this" class="ghost">이번 주</button>
+    </section>
+    <div id="week-strip" class="week-strip"></div>
+    <div class="columns">
+      <div class="col">
+        <section class="card">
+          <h2>자기 쇄신 (톱날 갈기)</h2>
+          <p class="hint">몸·마음·영혼·관계를 위해 이번 주에 할 일</p>
+          <div id="week-saw"></div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="card">
+          <h2>역할별 이번 주 목표</h2>
+          <p class="hint">각 역할에서 가장 중요한 한두 가지(큰 돌)를 먼저 정하세요</p>
+          <div id="week-roles"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <main id="month-view" class="page" hidden>
+    <section class="datebar">
+      <button id="month-prev" title="이전 달">◀</button>
+      <div class="datetitle"><div id="month-label"></div></div>
+      <button id="month-next" title="다음 달">▶</button>
+      <button id="month-this" class="ghost">이번 달</button>
+    </section>
+    <div class="columns month-cols">
+      <section class="card"><div id="calendar" class="calendar"></div></section>
+      <div class="col">
+        <section class="card">
+          <h2>이번 달 목표·메모</h2>
+          <textarea id="month-note" rows="8" placeholder="이번 달에 이루고 싶은 것, 기억할 것"></textarea>
+        </section>
+        <section class="card">
+          <h2>이번 달 일정</h2>
+          <div id="month-appts"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <main id="compass-view" class="page" hidden>
+    <div class="columns">
+      <div class="col">
+        <section class="card">
+          <h2>개인 사명서</h2>
+          <p class="hint">나는 어떤 사람이 되고 싶은가, 무엇을 위해 살고 싶은가</p>
+          <textarea id="mission" rows="7" placeholder="예) 나는 가족을 사랑하고, 맡은 일에 최선을 다하며, 매일 배우고 성장하는 사람이 된다."></textarea>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>지배 가치</h2><button class="ghost small" data-add="value">+ 가치 추가</button></div>
+          <p class="hint">가장 중요하게 여기는 가치를 우선순위대로</p>
+          <div id="values"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>역할</h2><button class="ghost small" data-add="role">+ 역할 추가</button></div>
+          <p class="hint">삶에서 맡고 있는 역할 (주간 계획에 쓰입니다)</p>
+          <div id="roles"></div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="card">
+          <div class="card-head"><h2>목표</h2><button class="ghost small" data-add="goal">+ 목표 추가</button></div>
+          <p class="hint">가치에서 나온 목표를 오늘 할 일로 나누어 실천합니다</p>
+          <div id="goals"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <main id="recurring-view" class="page" hidden>
+    <section class="card narrow">
+      <div class="card-head"><h2>반복 업무</h2><button class="primary small" data-add="recurring">+ 반복 업무 추가</button></div>
+      <p class="hint">정한 날 자정이 지나면 폰 앱이 오늘 할 일에 새로 만듭니다(↻). 매주 업무는 끝낼 때까지 그 주 동안 매일 오늘로 넘어옵니다.</p>
+      <div id="recurring-list"></div>
+    </section>
+  </main>
+
+  <dialog id="modal">
+    <form method="dialog" id="modal-form">
+      <h3 id="modal-title"></h3>
+      <div id="modal-fields"></div>
+      <div class="modal-actions">
+        <button type="button" id="modal-delete" class="ghost danger">삭제</button>
+        <span class="spacer"></span>
+        <button type="button" id="modal-cancel" class="ghost">취소</button>
+        <button type="submit" class="primary">저장</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="app.js"></script>
 </body>

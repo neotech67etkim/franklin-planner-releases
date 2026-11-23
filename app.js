@@ -31,6 +31,12 @@ const STATUS = {
   DELETED: { sym: "✕", label: "삭제" },
 };
 const SAW = { "-1": "신체", "-2": "정신", "-3": "영적", "-4": "사회·정서" };
+const SAW_FULL = [
+  [-1, "신체 (운동·휴식·건강)"], [-2, "정신 (독서·배움·계획)"], [-3, "영적 (가치·성찰·명상)"], [-4, "사회·정서 (관계·봉사)"],
+];
+const ISO_DAY = { 1: "월", 2: "화", 3: "수", 4: "목", 5: "금", 6: "토", 7: "일" };
+const WEEK_ORDER = [7, 1, 2, 3, 4, 5, 6];
+const VIEWS = { day: "day-view", week: "week-view", month: "month-view", notebook: "notebook-view", compass: "compass-view", recurring: "recurring-view" };
 const DOW = "일월화수목금토";
 
 const state = {
@@ -38,6 +44,8 @@ const state = {
   days: new Map(), // date -> day object
   meta: null,
   current: iso(new Date()),
+  week: null, // Sunday of the week shown in the week tab
+  month: null, // "yyyy-MM" shown in the month tab
   tab: "day",
   editingNote: false,
   nbOnlyOpen: false,
@@ -119,8 +127,7 @@ onAuthStateChanged(auth, (user) => {
     state.uid = null;
     $("login").hidden = false;
     $("tabs").hidden = true;
-    $("day-view").hidden = true;
-    $("notebook-view").hidden = true;
+    Object.values(VIEWS).forEach((v) => { $(v).hidden = true; });
     $("account").innerHTML = "";
     return;
   }
@@ -151,8 +158,7 @@ document.querySelectorAll("#tabs button").forEach((b) => { b.onclick = () => sho
 function showTab(tab) {
   state.tab = tab;
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
-  $("day-view").hidden = tab !== "day";
-  $("notebook-view").hidden = tab !== "notebook";
+  for (const [t, v] of Object.entries(VIEWS)) $(v).hidden = t !== tab;
   render();
 }
 function goTo(date) { state.current = date; state.editingNote = false; showTab("day"); }
@@ -169,7 +175,8 @@ document.addEventListener("keydown", (e) => {
 // ---------- rendering ----------
 function render() {
   if (!state.uid) return;
-  if (state.tab === "day") renderDay(); else renderNotebook();
+  ({ day: renderDay, week: renderWeek, month: renderMonth, notebook: renderNotebook,
+    compass: renderCompass, recurring: renderRecurring })[state.tab]();
 }
 
 function renderDay() {
@@ -458,4 +465,345 @@ $("nb-list").addEventListener("change", (e) => {
   day.note = toggleLine(day.note, Number(i));
   saveDay(date, day);
   renderNotebook();
+});
+
+// ---------- shared part (meta): mission, values, roles, goals, weekly goals, month notes, recurring ----------
+function getMeta() {
+  const base = { mission: "", values: [], roles: [], goals: [], weeklyGoals: [], monthNotes: {}, recurring: [] };
+  return { ...base, ...JSON.parse(JSON.stringify(state.meta || {})) };
+}
+let metaTimer = null;
+function updateMeta(fn, delay = 0) {
+  const meta = getMeta();
+  fn(meta);
+  state.meta = meta;
+  clearTimeout(metaTimer);
+  if (delay) metaTimer = setTimeout(() => saveMeta(state.meta), delay);
+  else { saveMeta(meta); render(); }
+}
+function addTaskTo(date, p, text, extra = {}) {
+  const day = getDay(date);
+  day.tasks.push({
+    id: newId(), date, p, order: nextOrder(day, p), text, status: "OPEN",
+    delegatedTo: "", goalId: null, forwardedFrom: "", created: Date.now(), recurringId: null, ...extra,
+  });
+  saveDay(date, day);
+}
+function toast(msg) { setSaveState(msg); }
+
+// ---------- modal form ----------
+let modalSubmit = null;
+let modalDelete = null;
+function openForm(title, fields, onSave, onDelete) {
+  $("modal-title").textContent = title;
+  $("modal-fields").innerHTML = fields.map((f) => {
+    const v = f.value ?? "";
+    if (f.type === "textarea") return `<label>${esc(f.label)}<textarea name="${f.name}" rows="3">${esc(v)}</textarea></label>`;
+    if (f.type === "select") {
+      return `<label>${esc(f.label)}<select name="${f.name}">${f.options.map(([ov, ol]) =>
+        `<option value="${esc(ov)}" ${String(ov) === String(v) ? "selected" : ""}>${esc(ol)}</option>`).join("")}</select></label>`;
+    }
+    if (f.type === "chips" || f.type === "multichips") {
+      const kind = f.type === "chips" ? "radio" : "checkbox";
+      const sel = new Set([].concat(v).map(String));
+      return `<label>${esc(f.label)}</label><div class="chips" data-field="${f.name}">${f.options.map(([ov, ol]) =>
+        `<label><input type="${kind}" name="${f.name}" value="${esc(ov)}" ${sel.has(String(ov)) ? "checked" : ""}><span>${esc(ol)}</span></label>`).join("")}</div>`;
+    }
+    return `<label>${esc(f.label)}<input name="${f.name}" type="${f.type || "text"}" value="${esc(v)}" ${f.required ? "required" : ""}></label>`;
+  }).join("");
+  modalSubmit = onSave;
+  modalDelete = onDelete || null;
+  $("modal-delete").hidden = !onDelete;
+  $("modal").showModal();
+  $("modal-fields").querySelector("input:not([type=radio]):not([type=checkbox]), textarea")?.focus();
+}
+$("modal-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const fd = new FormData($("modal-form"));
+  const values = {};
+  for (const el of $("modal-fields").querySelectorAll("[name]")) {
+    if (el.type === "checkbox") values[el.name] = fd.getAll(el.name);
+    else values[el.name] = fd.get(el.name) ?? "";
+  }
+  if (modalSubmit && modalSubmit(values) === false) return;
+  $("modal").close();
+});
+$("modal-cancel").onclick = () => $("modal").close();
+$("modal-delete").onclick = () => { if (modalDelete && modalDelete() !== false) $("modal").close(); };
+
+// ---------- week ----------
+function renderWeek() {
+  if (!state.week) state.week = weekStart(iso(new Date()));
+  const ws = state.week;
+  const today = iso(new Date());
+  $("week-label").textContent = `${shortDate(ws)} ~ ${shortDate(addDays(ws, 6))}` + (ws === weekStart(today) ? " · 이번 주" : "");
+  $("week-strip").innerHTML = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const date = addDays(ws, i);
+    const d = state.days.get(date) || emptyDay();
+    const open = d.tasks.filter(isOpen).length;
+    const done = d.tasks.filter((t) => t.status === "DONE").length;
+    const cls = i === 0 ? "sun" : i === 6 ? "sat" : "";
+    return `<div class="wday ${date === today ? "today" : ""}" data-go="${date}">
+      <div class="dn ${cls}">${DOW[i]}</div><div class="dd">${parse(date).getDate()}</div>
+      <div class="stat">${open + done ? `${done}/${open + done}` : ""}</div>
+      <div class="ap">${d.appointments.length ? `일정 ${d.appointments.length}` : ""}</div></div>`;
+  }).join("");
+  const meta = getMeta();
+  const goalsOf = (area) => meta.weeklyGoals.filter((g) => g.weekStart === ws && g.area === area);
+  const areaHtml = (area, name) => `<div class="area" data-area="${area}"><h3>${esc(name)}</h3>
+    ${goalsOf(area).map((g) => `<div class="row ${g.done ? "done" : ""}" data-wgid="${g.id}">
+      <input type="checkbox" data-act="wg-toggle" ${g.done ? "checked" : ""}>
+      <div class="grow"><span>${esc(g.text)}</span></div>
+      <div class="actions"><button class="icon" data-act="wg-today" title="오늘 할 일(A)로 추가">→ 오늘</button>
+      <button class="icon" data-act="wg-del" title="삭제">✕</button></div></div>`).join("")}
+    <form class="addrow" data-act="wg-add"><input placeholder="이번 주 목표 추가 (Enter)" autocomplete="off"></form></div>`;
+  $("week-saw").innerHTML = SAW_FULL.map(([a, n]) => areaHtml(a, n)).join("");
+  $("week-roles").innerHTML = meta.roles.map((r) => areaHtml(r.id, r.name)).join("") ||
+    `<p class="hint">역할이 없습니다. <a href="#" data-goto="compass">가치·목표</a> 탭에서 역할을 추가하세요.</p>`;
+}
+$("week-prev").onclick = () => { state.week = addDays(state.week, -7); renderWeek(); };
+$("week-next").onclick = () => { state.week = addDays(state.week, 7); renderWeek(); };
+$("week-this").onclick = () => { state.week = weekStart(iso(new Date())); renderWeek(); };
+$("week-strip").addEventListener("click", (e) => { const go = e.target.closest("[data-go]")?.dataset.go; if (go) goTo(go); });
+$("week-view").addEventListener("click", (e) => {
+  if (e.target.dataset.goto) { e.preventDefault(); showTab(e.target.dataset.goto); return; }
+  const act = e.target.dataset.act;
+  const row = e.target.closest("[data-wgid]");
+  if (!row || !act) return;
+  const id = Number(row.dataset.wgid);
+  if (act === "wg-del") updateMeta((m) => { m.weeklyGoals = m.weeklyGoals.filter((g) => g.id !== id); });
+  if (act === "wg-today") {
+    const g = getMeta().weeklyGoals.find((x) => x.id === id);
+    if (g) { addTaskTo(iso(new Date()), "A", g.text); toast("오늘 할 일(A)에 추가했습니다"); }
+  }
+});
+$("week-view").addEventListener("change", (e) => {
+  if (e.target.dataset.act !== "wg-toggle") return;
+  const id = Number(e.target.closest("[data-wgid]").dataset.wgid);
+  updateMeta((m) => { const g = m.weeklyGoals.find((x) => x.id === id); if (g) g.done = e.target.checked; });
+});
+$("week-view").addEventListener("submit", (e) => {
+  if (e.target.dataset.act !== "wg-add") return;
+  e.preventDefault();
+  const input = e.target.querySelector("input");
+  const text = input.value.trim();
+  if (!text) return;
+  const area = Number(e.target.closest("[data-area]").dataset.area);
+  updateMeta((m) => { m.weeklyGoals.push({ id: newId(), weekStart: state.week, area, text, done: false }); });
+  $("week-view").querySelector(`[data-area="${area}"] input:not([type=checkbox])`)?.focus();
+});
+
+// ---------- month ----------
+function renderMonth() {
+  if (!state.month) state.month = iso(new Date()).slice(0, 7);
+  const [y, m] = state.month.split("-").map(Number);
+  const today = iso(new Date());
+  $("month-label").textContent = `${y}년 ${m}월` + (state.month === today.slice(0, 7) ? " · 이번 달" : "");
+  const first = new Date(y, m - 1, 1);
+  const days = new Date(y, m, 0).getDate();
+  let html = [..."일월화수목금토"].map((w, i) => `<div class="wh ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</div>`).join("");
+  for (let i = 0; i < first.getDay(); i++) html += `<div class="cell empty"></div>`;
+  for (let n = 1; n <= days; n++) {
+    const date = `${state.month}-${pad(n)}`;
+    const d = state.days.get(date) || emptyDay();
+    const open = d.tasks.filter(isOpen).length;
+    const dow = new Date(y, m - 1, n).getDay();
+    html += `<div class="cell ${date === today ? "today" : ""}" data-go="${date}">
+      <div class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${n}</div>
+      ${open ? `<div class="t">할 일 ${open}</div>` : ""}${d.appointments.length ? `<div class="a">일정 ${d.appointments.length}</div>` : ""}</div>`;
+  }
+  $("calendar").innerHTML = html;
+  const note = $("month-note");
+  if (document.activeElement !== note) note.value = getMeta().monthNotes[state.month] || "";
+  const appts = [...state.days.entries()].filter(([date]) => date.startsWith(state.month))
+    .flatMap(([date, d]) => d.appointments.map((a) => ({ ...a, date })))
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  $("month-appts").innerHTML = appts.map((a) => `<div class="mappt" data-go="${a.date}">
+    <span class="md">${label(a.date)}</span><span class="time">${esc(a.time)}</span><span>${esc(a.title)}</span></div>`).join("") ||
+    `<p class="hint">이번 달에 등록된 일정이 없습니다.</p>`;
+}
+function shiftMonth(n) {
+  const [y, m] = state.month.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  state.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  renderMonth();
+}
+$("month-prev").onclick = () => shiftMonth(-1);
+$("month-next").onclick = () => shiftMonth(1);
+$("month-this").onclick = () => { state.month = iso(new Date()).slice(0, 7); renderMonth(); };
+$("month-view").addEventListener("click", (e) => { const go = e.target.closest("[data-go]")?.dataset.go; if (go) goTo(go); });
+$("month-note").addEventListener("input", (e) => {
+  const month = state.month;
+  updateMeta((m) => { if (e.target.value) m.monthNotes[month] = e.target.value; else delete m.monthNotes[month]; }, 800);
+});
+
+// ---------- values, roles, goals ----------
+function renderCompass() {
+  const meta = getMeta();
+  const mission = $("mission");
+  if (document.activeElement !== mission) mission.value = meta.mission;
+  $("values").innerHTML = meta.values.map((v, i) => `<div class="row" data-vid="${v.id}">
+    <span class="num">${i + 1}</span>
+    <div class="grow"><span>${esc(v.title)}</span>${v.description ? `<small>${esc(v.description)}</small>` : ""}</div>
+    <div class="actions"><button class="icon" data-act="v-up" title="위로">▲</button><button class="icon" data-act="v-down" title="아래로">▼</button>
+    <button class="icon" data-act="v-edit" title="수정">✎</button></div></div>`).join("") ||
+    `<p class="hint">예) 가족, 건강, 정직, 성장 …</p>`;
+  $("roles").innerHTML = meta.roles.map((r) => `<div class="row" data-rid="${r.id}">
+    <div class="grow"><span>${esc(r.name)}</span></div>
+    <div class="actions"><button class="icon" data-act="r-edit" title="수정">✎</button></div></div>`).join("") ||
+    `<p class="hint">예) 남편·아내, 부모, 팀장, 친구, 나 자신 …</p>`;
+  const roleName = Object.fromEntries(meta.roles.map((r) => [r.id, r.name]));
+  const valueName = Object.fromEntries(meta.values.map((v) => [v.id, v.title]));
+  const goals = [...meta.goals].sort((a, b) => (a.done - b.done) || (a.due || "9999").localeCompare(b.due || "9999"));
+  $("goals").innerHTML = goals.map((g) => {
+    const sub = [roleName[g.roleId], valueName[g.valueId] && `가치: ${valueName[g.valueId]}`, g.due && `~${shortDate(g.due)}`].filter(Boolean);
+    return `<div class="row ${g.done ? "done" : ""}" data-gid="${g.id}">
+      <input type="checkbox" data-act="g-toggle" ${g.done ? "checked" : ""}>
+      <div class="grow"><span>${esc(g.title)}</span>${sub.length ? `<small>${esc(sub.join(" · "))}</small>` : ""}</div>
+      <div class="actions"><button class="icon" data-act="g-today" title="오늘 할 일(A)로 추가">→ 오늘</button>
+      <button class="icon" data-act="g-edit" title="수정">✎</button></div></div>`;
+  }).join("") || `<p class="hint">장기 목표를 추가하고 '→ 오늘'로 오늘 할 일에 보내 보세요.</p>`;
+}
+$("mission").addEventListener("input", (e) => updateMeta((m) => { m.mission = e.target.value; }, 800));
+
+function valueForm(v) {
+  openForm(v ? "지배 가치 수정" : "지배 가치 추가", [
+    { name: "title", label: "가치 (예: 가족)", value: v?.title, required: true },
+    { name: "description", label: "설명 (예: 매일 가족과 저녁을 함께한다)", type: "textarea", value: v?.description },
+  ], ({ title, description }) => {
+    if (!title.trim()) return false;
+    updateMeta((m) => {
+      if (v) Object.assign(m.values.find((x) => x.id === v.id), { title: title.trim(), description: description.trim() });
+      else m.values.push({ id: newId(), title: title.trim(), description: description.trim() });
+    });
+  }, v && (() => {
+    if (!confirm("이 가치를 삭제할까요?")) return false;
+    updateMeta((m) => {
+      m.values = m.values.filter((x) => x.id !== v.id);
+      m.goals.forEach((g) => { if (g.valueId === v.id) g.valueId = null; });
+    });
+  }));
+}
+function roleForm(r) {
+  openForm(r ? "역할 수정" : "역할 추가", [{ name: "name", label: "역할 이름", value: r?.name, required: true }], ({ name }) => {
+    if (!name.trim()) return false;
+    updateMeta((m) => {
+      if (r) m.roles.find((x) => x.id === r.id).name = name.trim();
+      else m.roles.push({ id: newId(), name: name.trim() });
+    });
+  }, r && (() => {
+    if (!confirm("역할을 삭제할까요? 이 역할의 주간 목표도 함께 지워집니다.")) return false;
+    updateMeta((m) => {
+      m.roles = m.roles.filter((x) => x.id !== r.id);
+      m.goals.forEach((g) => { if (g.roleId === r.id) g.roleId = null; });
+      m.weeklyGoals = m.weeklyGoals.filter((w) => w.area !== r.id);
+    });
+  }));
+}
+function goalForm(g) {
+  const meta = getMeta();
+  openForm(g ? "목표 수정" : "목표 추가", [
+    { name: "title", label: "목표", value: g?.title, required: true },
+    { name: "roleId", label: "역할", type: "select", value: g?.roleId ?? "", options: [["", "없음"], ...meta.roles.map((r) => [r.id, r.name])] },
+    { name: "valueId", label: "가치", type: "select", value: g?.valueId ?? "", options: [["", "없음"], ...meta.values.map((v) => [v.id, v.title])] },
+    { name: "due", label: "기한", type: "date", value: g?.due },
+  ], ({ title, roleId, valueId, due }) => {
+    if (!title.trim()) return false;
+    const fields = { title: title.trim(), roleId: roleId ? Number(roleId) : null, valueId: valueId ? Number(valueId) : null, due: due || "" };
+    updateMeta((m) => {
+      if (g) Object.assign(m.goals.find((x) => x.id === g.id), fields);
+      else m.goals.push({ id: newId(), ...fields, done: false });
+    });
+  }, g && (() => {
+    if (!confirm("목표를 삭제할까요?")) return false;
+    updateMeta((m) => { m.goals = m.goals.filter((x) => x.id !== g.id); });
+  }));
+}
+document.querySelectorAll("[data-add]").forEach((b) => {
+  b.onclick = () => ({ value: () => valueForm(null), role: () => roleForm(null), goal: () => goalForm(null), recurring: () => recurringForm(null) })[b.dataset.add]();
+});
+$("compass-view").addEventListener("click", (e) => {
+  const act = e.target.dataset.act;
+  if (!act) return;
+  const meta = getMeta();
+  const vid = Number(e.target.closest("[data-vid]")?.dataset.vid);
+  const rid = Number(e.target.closest("[data-rid]")?.dataset.rid);
+  const gid = Number(e.target.closest("[data-gid]")?.dataset.gid);
+  if (act === "v-edit") valueForm(meta.values.find((x) => x.id === vid));
+  if (act === "v-up" || act === "v-down") {
+    updateMeta((m) => {
+      const i = m.values.findIndex((x) => x.id === vid);
+      const j = act === "v-up" ? i - 1 : i + 1;
+      if (i >= 0 && j >= 0 && j < m.values.length) [m.values[i], m.values[j]] = [m.values[j], m.values[i]];
+    });
+  }
+  if (act === "r-edit") roleForm(meta.roles.find((x) => x.id === rid));
+  if (act === "g-edit") goalForm(meta.goals.find((x) => x.id === gid));
+  if (act === "g-today") {
+    const g = meta.goals.find((x) => x.id === gid);
+    if (g) { addTaskTo(iso(new Date()), "A", g.title, { goalId: g.id }); toast("오늘 할 일(A)에 추가했습니다"); }
+  }
+});
+$("compass-view").addEventListener("change", (e) => {
+  if (e.target.dataset.act !== "g-toggle") return;
+  const gid = Number(e.target.closest("[data-gid]").dataset.gid);
+  updateMeta((m) => { const g = m.goals.find((x) => x.id === gid); if (g) g.done = e.target.checked; });
+});
+
+// ---------- recurring ----------
+function describeRule(r) {
+  const days = [...(r.days || [])].sort();
+  if (r.weekly) return `매주 ${ISO_DAY[days[0]] || ""}요일`;
+  if (days.length === 7) return "매일";
+  if (days.join() === "1,2,3,4,5") return "평일";
+  if (days.join() === "6,7") return "주말";
+  return WEEK_ORDER.filter((d) => days.includes(d)).map((d) => ISO_DAY[d]).join("·");
+}
+function renderRecurring() {
+  const rules = getMeta().recurring;
+  $("recurring-list").innerHTML = rules.map((r) => `<div class="row ${r.active ? "" : "done"}" data-rcid="${r.id}">
+    <input type="checkbox" class="switch" data-act="rc-active" ${r.active ? "checked" : ""} title="켜기/일시중지">
+    <span class="label ${r.p}">${r.p}</span>
+    <div class="grow"><span>${esc(r.text)}</span><small>${esc(describeRule(r))}${r.active ? "" : " · 일시중지"}</small></div>
+    <div class="actions"><button class="icon" data-act="rc-edit" title="수정">✎</button></div></div>`).join("") ||
+    `<p class="hint">아직 반복 업무가 없습니다.</p>`;
+}
+function recurringForm(r) {
+  const days = r ? [...r.days].sort() : [];
+  const repeat = !r ? "daily" : r.weekly ? "weekly" : days.length === 7 ? "daily" : days.join() === "1,2,3,4,5" ? "weekdays" : "custom";
+  const dayOptions = WEEK_ORDER.map((d) => [d, ISO_DAY[d]]);
+  openForm(r ? "반복 업무 수정" : "반복 업무 추가", [
+    { name: "text", label: "할 일", value: r?.text, required: true },
+    { name: "p", label: "우선순위", type: "chips", value: r?.p || "A", options: [["A", "A"], ["B", "B"], ["C", "C"]] },
+    { name: "repeat", label: "반복", type: "chips", value: repeat, options: [["daily", "매일"], ["weekdays", "평일"], ["weekly", "매주 (요일 하나)"], ["custom", "요일 지정"]] },
+    { name: "days", label: "요일 (매주: 첫 번째 고른 요일 / 요일 지정: 여러 개)", type: "multichips", value: r ? days : [1], options: dayOptions },
+  ], ({ text, p, repeat: rep, days: picked }) => {
+    if (!text.trim()) return false;
+    const chosen = (picked || []).map(Number);
+    let ruleDays;
+    if (rep === "daily") ruleDays = [1, 2, 3, 4, 5, 6, 7];
+    else if (rep === "weekdays") ruleDays = [1, 2, 3, 4, 5];
+    else if (rep === "weekly") ruleDays = chosen.length ? [WEEK_ORDER.find((d) => chosen.includes(d))] : [1];
+    else ruleDays = chosen;
+    if (!ruleDays.length) { alert("요일을 하나 이상 고르세요."); return false; }
+    const fields = { text: text.trim(), p: p || "A", weekly: rep === "weekly", days: ruleDays };
+    updateMeta((m) => {
+      if (r) Object.assign(m.recurring.find((x) => x.id === r.id), fields);
+      else m.recurring.push({ id: newId(), ...fields, active: true });
+    });
+    toast("저장했습니다. 폰 앱을 열면 해당 날짜의 할 일이 만들어집니다");
+  }, r && (() => {
+    if (!confirm("반복 업무를 삭제할까요? 이미 생긴 할 일은 기록으로 남습니다.")) return false;
+    updateMeta((m) => { m.recurring = m.recurring.filter((x) => x.id !== r.id); });
+  }));
+}
+$("recurring-list").addEventListener("click", (e) => {
+  if (e.target.dataset.act !== "rc-edit") return;
+  const id = Number(e.target.closest("[data-rcid]").dataset.rcid);
+  recurringForm(getMeta().recurring.find((x) => x.id === id));
+});
+$("recurring-list").addEventListener("change", (e) => {
+  if (e.target.dataset.act !== "rc-active") return;
+  const id = Number(e.target.closest("[data-rcid]").dataset.rcid);
+  updateMeta((m) => { const r = m.recurring.find((x) => x.id === id); if (r) r.active = e.target.checked; });
 });
