@@ -1,0 +1,26 @@
+name: Deploy web planner to Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - app.js
+      - style.css
+      - firebase.json
+      - .github/workflows/hosting.yml
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Needs the FIREBASE_SERVICE_ACCOUNT secret: the JSON key of a service account
+      # of the franklin-planner-b419a project.
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: franklin-planner-b419a
+          channelId: live
