@@ -30,13 +30,25 @@ jobs:
           python3 - <<'PY'
           import json, os
           key = json.loads(os.environ["SA"], strict=False)
+          # Rebuild the PEM block from its base64 body in case spaces or breaks crept in.
+          pem = key["private_key"].replace("\\n", "\n")
+          body = pem.split("-----BEGIN PRIVATE KEY-----")[-1].split("-----END PRIVATE KEY-----")[0]
+          body = "".join(body.split())
+          key["private_key"] = ("-----BEGIN PRIVATE KEY-----\n" +
+              "\n".join(body[i:i + 64] for i in range(0, len(body), 64)) +
+              "\n-----END PRIVATE KEY-----\n")
           path = os.path.join(os.environ["RUNNER_TEMP"], "sa.json")
           with open(path, "w") as f:
               json.dump(key, f)
           with open(os.environ["GITHUB_ENV"], "a") as f:
               f.write(f"GOOGLE_APPLICATION_CREDENTIALS={path}\n")
-          print("key for", key.get("client_email", "?").split("@")[0])
+          print("key for", key.get("client_email", "?").split("@")[0], "| type:", key.get("type"),
+                "| project:", key.get("project_id"), "| body length:", len(body))
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "pk.pem"), "w") as f:
+              f.write(key["private_key"])
           PY
+          openssl pkey -in "$RUNNER_TEMP/pk.pem" -noout && echo "private key OK" || echo "::error::private key is damaged - register the key again"
+          rm -f "$RUNNER_TEMP/pk.pem"
 
       - name: Deploy
         run: npx --yes firebase-tools@13 deploy --only hosting --project franklin-planner-b419a --non-interactive
