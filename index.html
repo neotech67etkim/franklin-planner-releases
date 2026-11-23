@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>프랭클린 플래너</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <header class="topbar">
@@ -129,6 +129,10 @@
       <button id="week-this" class="ghost">이번 주</button>
     </section>
     <div id="week-strip" class="week-strip"></div>
+    <section class="card" id="week-family" hidden style="margin-bottom:18px">
+      <div class="card-head"><h2>이번 주 가족 일정</h2><button class="ghost small" data-goto="family">+ 가족 일정</button></div>
+      <div id="week-family-list"></div>
+    </section>
     <div class="columns">
       <div class="col">
         <section class="card">
@@ -162,7 +166,7 @@
           <textarea id="month-note" rows="8" placeholder="이번 달에 이루고 싶은 것, 기억할 것"></textarea>
         </section>
         <section class="card">
-          <h2>이번 달 일정</h2>
+          <div class="card-head"><h2>이번 달 일정</h2><button class="ghost small" data-goto="family" id="month-fam-add">+ 가족 일정</button></div>
           <div id="month-appts"></div>
         </section>
       </div>
@@ -272,6 +276,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="app.js?v=13"></script>
+  <script type="module" src="app.js?v=14"></script>
 </body>
 </html>

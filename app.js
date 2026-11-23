@@ -565,8 +565,14 @@ function renderWeek() {
     return `<div class="wday ${date === today ? "today" : ""}" data-go="${date}">
       <div class="dn ${cls}">${DOW[i]}</div><div class="dd">${parse(date).getDate()}</div>
       <div class="stat">${open + done ? `${done}/${open + done}` : ""}</div>
-      <div class="ap">${d.appointments.length ? `일정 ${d.appointments.length}` : ""}</div></div>`;
+      <div class="ap">${d.appointments.length ? `일정 ${d.appointments.length}` : ""}</div>
+      <div class="fm">${famCount(date) ? `가족 ${famCount(date)}` : ""}</div></div>`;
   }).join("");
+  const weekFam = state.family ? state.familyItems.filter((i) => i.type === "event" && i.date >= ws && i.date <= addDays(ws, 6))
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)) : [];
+  $("week-family").hidden = !state.family;
+  $("week-family-list").innerHTML = weekFam.map((i) => famRow(i, { showDate: true })).join("") ||
+    `<p class="hint">이번 주 가족 일정이 없습니다. <a href="#" data-goto="family">가족</a> 탭에서 추가할 수 있습니다.</p>`;
   const meta = getMeta();
   const goalsOf = (area) => meta.weeklyGoals.filter((g) => g.weekStart === ws && g.area === area);
   const areaHtml = (area, name) => `<div class="area" data-area="${area}"><h3>${esc(name)}</h3>
@@ -630,16 +636,20 @@ function renderMonth() {
     const dow = new Date(y, m - 1, n).getDay();
     html += `<div class="cell ${date === today ? "today" : ""}" data-go="${date}">
       <div class="d ${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}">${n}</div>
-      ${open ? `<div class="t">할 일 ${open}</div>` : ""}${d.appointments.length ? `<div class="a">일정 ${d.appointments.length}</div>` : ""}</div>`;
+      ${open ? `<div class="t">할 일 ${open}</div>` : ""}${d.appointments.length ? `<div class="a">일정 ${d.appointments.length}</div>` : ""}${famCount(date) ? `<div class="f">가족 ${famCount(date)}</div>` : ""}</div>`;
   }
   $("calendar").innerHTML = html;
   const note = $("month-note");
   if (document.activeElement !== note) note.value = getMeta().monthNotes[state.month] || "";
   const appts = [...state.days.entries()].filter(([date]) => date.startsWith(state.month))
     .flatMap(([date, d]) => d.appointments.map((a) => ({ ...a, date })))
+    .concat(state.familyItems.filter((i) => i.type === "event" && i.date.startsWith(state.month))
+      .map((i) => ({ date: i.date, time: i.time, title: i.text, who: famWho(i.assignee) })))
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  $("month-fam-add").hidden = !state.family;
   $("month-appts").innerHTML = appts.map((a) => `<div class="mappt" data-go="${a.date}">
-    <span class="md">${label(a.date)}</span><span class="time">${esc(a.time)}</span><span>${esc(a.title)}</span></div>`).join("") ||
+    <span class="md">${label(a.date)}</span><span class="time">${esc(a.time || "종일")}</span>
+    <span>${esc(a.title)}${a.who ? ` <span class="famtag">가족 · ${esc(a.who)}</span>` : ""}</span></div>`).join("") ||
     `<p class="hint">이번 달에 등록된 일정이 없습니다.</p>`;
 }
 function shiftMonth(n) {
@@ -651,7 +661,11 @@ function shiftMonth(n) {
 $("month-prev").onclick = () => shiftMonth(-1);
 $("month-next").onclick = () => shiftMonth(1);
 $("month-this").onclick = () => { state.month = iso(new Date()).slice(0, 7); renderMonth(); };
-$("month-view").addEventListener("click", (e) => { const go = e.target.closest("[data-go]")?.dataset.go; if (go) goTo(go); });
+$("month-view").addEventListener("click", (e) => {
+  if (e.target.dataset.goto) { showTab(e.target.dataset.goto); return; }
+  const go = e.target.closest("[data-go]")?.dataset.go;
+  if (go) goTo(go);
+});
 $("month-note").addEventListener("input", (e) => {
   const month = state.month;
   updateMeta((m) => { if (e.target.value) m.monthNotes[month] = e.target.value; else delete m.monthNotes[month]; }, 800);
@@ -987,3 +1001,7 @@ $("fam-leave").onclick = async () => {
   await updateDoc(doc(db, "families", familyId), { members: arrayRemove(state.uid) }).catch(() => {});
   await deleteDoc(doc(db, "users", state.uid, "meta", "family"));
 };
+
+function famCount(date) {
+  return state.family ? state.familyItems.filter((i) => i.type === "event" && i.date === date).length : 0;
+}
