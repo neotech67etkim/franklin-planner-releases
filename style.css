@@ -220,3 +220,4 @@ dialog input:not([type=checkbox]), dialog select, dialog textarea {
 .ftime { color: var(--ok); font-weight: 800; width: 52px; flex: none; }
 .past { opacity: .55; }
 .addrow.wrap input[type=date] { min-width: 150px; }
+.error-banner { max-width: 1200px; margin: 12px auto 0; padding: 10px 16px; border-radius: 10px; background: #fde7e7; color: #b71c1c; font-size: 13px; }

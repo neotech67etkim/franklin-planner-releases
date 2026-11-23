@@ -182,6 +182,17 @@ document.addEventListener("keydown", (e) => {
 // ---------- rendering ----------
 function render() {
   if (!state.uid) return;
+  try {
+    renderTab();
+    $("error-banner").hidden = true;
+  } catch (e) {
+    // Show the problem instead of leaving a blank page.
+    console.error(e);
+    $("error-banner").hidden = false;
+    $("error-banner").textContent = "화면을 그리다 오류가 났습니다: " + e.message + " (이 문구를 알려 주세요)";
+  }
+}
+function renderTab() {
   ({ family: renderFamily, day: renderDay, week: renderWeek, month: renderMonth, notebook: renderNotebook,
     compass: renderCompass, recurring: renderRecurring })[state.tab]();
 }
