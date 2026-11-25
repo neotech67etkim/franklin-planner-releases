@@ -1,5 +1,5 @@
 {
-  "versionCode": 14,
+  "versionCode": 15,
   "url": "https://github.com/neotech67etkim/franklin-planner-releases/raw/main/FranklinPlanner.apk",
-  "notes": "가족 탭 추가 (가족 할 일·일정·장보기), 오늘 화면에 장보기 표시, 주간·월간에 가족 일정 표시"
+  "notes": "목표에서 할 일을 만들 때 내용·날짜·우선순위(A/B/C)를 직접 정하도록 변경"
 }
