@@ -579,7 +579,7 @@ function renderWeek() {
     ${goalsOf(area).map((g) => `<div class="row ${g.done ? "done" : ""}" data-wgid="${g.id}">
       <input type="checkbox" data-act="wg-toggle" ${g.done ? "checked" : ""}>
       <div class="grow"><span>${esc(g.text)}</span></div>
-      <div class="actions"><button class="icon" data-act="wg-today" title="오늘 할 일(A)로 추가">→ 오늘</button>
+      <div class="actions"><button class="icon" data-act="wg-today" title="날짜·우선순위를 정해 할 일로 계획">할 일로 계획</button>
       <button class="icon" data-act="wg-del" title="삭제">✕</button></div></div>`).join("")}
     <form class="addrow" data-act="wg-add"><input placeholder="이번 주 목표 추가 (Enter)" autocomplete="off"></form></div>`;
   $("week-saw").innerHTML = SAW_FULL.map(([a, n]) => areaHtml(a, n)).join("");
@@ -600,7 +600,7 @@ $("week-view").addEventListener("click", (e) => {
   if (act === "wg-del") updateMeta((m) => { m.weeklyGoals = m.weeklyGoals.filter((g) => g.id !== id); });
   if (act === "wg-today") {
     const g = getMeta().weeklyGoals.find((x) => x.id === id);
-    if (g) { addTaskTo(iso(new Date()), "A", g.text); toast("오늘 할 일(A)에 추가했습니다"); }
+    if (g) planTask(g.text, null);
   }
 });
 $("week-view").addEventListener("change", (e) => {
@@ -694,9 +694,9 @@ function renderCompass() {
     return `<div class="row ${g.done ? "done" : ""}" data-gid="${g.id}">
       <input type="checkbox" data-act="g-toggle" ${g.done ? "checked" : ""}>
       <div class="grow"><span>${esc(g.title)}</span>${sub.length ? `<small>${esc(sub.join(" · "))}</small>` : ""}</div>
-      <div class="actions"><button class="icon" data-act="g-today" title="오늘 할 일(A)로 추가">→ 오늘</button>
+      <div class="actions"><button class="icon" data-act="g-today" title="날짜·우선순위를 정해 할 일로 계획">할 일로 계획</button>
       <button class="icon" data-act="g-edit" title="수정">✎</button></div></div>`;
-  }).join("") || `<p class="hint">장기 목표를 추가하고 '→ 오늘'로 오늘 할 일에 보내 보세요.</p>`;
+  }).join("") || `<p class="hint">장기 목표를 추가하고 '할 일로 계획'으로 날짜와 우선순위를 정해 실천해 보세요.</p>`;
 }
 $("mission").addEventListener("input", (e) => updateMeta((m) => { m.mission = e.target.value; }, 800));
 
@@ -775,7 +775,7 @@ $("compass-view").addEventListener("click", (e) => {
   if (act === "g-edit") goalForm(meta.goals.find((x) => x.id === gid));
   if (act === "g-today") {
     const g = meta.goals.find((x) => x.id === gid);
-    if (g) { addTaskTo(iso(new Date()), "A", g.title, { goalId: g.id }); toast("오늘 할 일(A)에 추가했습니다"); }
+    if (g) planTask(g.title, g.id);
   }
 });
 $("compass-view").addEventListener("change", (e) => {
@@ -1004,4 +1004,17 @@ $("fam-leave").onclick = async () => {
 
 function famCount(date) {
   return state.family ? state.familyItems.filter((i) => i.type === "event" && i.date === date).length : 0;
+}
+
+/** Turns a goal into a scheduled task: the user words the step and picks its day and priority. */
+function planTask(text, goalId) {
+  openForm("할 일로 계획", [
+    { name: "text", label: "할 일 (실행할 단계로 적어 보세요)", value: text, required: true },
+    { name: "p", label: "우선순위 (A 반드시 · B 해야 할 · C 하면 좋은)", type: "chips", value: "B", options: [["A", "A"], ["B", "B"], ["C", "C"]] },
+    { name: "date", label: "날짜", type: "date", value: iso(new Date()) },
+  ], ({ text: t, p, date }) => {
+    if (!t.trim() || !date) return false;
+    addTaskTo(date, p || "B", t.trim(), goalId ? { goalId } : {});
+    toast(`${label(date)} ${p || "B"} 할 일로 추가했습니다`);
+  });
 }
