@@ -48,6 +48,7 @@ const state = {
   month: null, // "yyyy-MM" shown in the month tab
   tab: "day",
   editingNote: false,
+  showClosed: false,
   nbOnlyOpen: false,
   unsubs: [],
   family: null, // { id, members, names }
@@ -208,7 +209,7 @@ function renderDay() {
 
   const goals = Object.fromEntries((state.meta?.goals || []).map((g) => [g.id, g.title]));
   const lab = labels(day.tasks);
-  $("tasks").innerHTML = sorted(day.tasks).map((t) => {
+  const taskRow = (t) => {
     const st = STATUS[t.status] || STATUS.OPEN;
     const inactive = ["DONE", "FORWARDED", "DELETED"].includes(t.status);
     const notes = [];
@@ -230,7 +231,18 @@ function renderDay() {
         <option value="REMOVE">완전히 지우기</option>
       </select>
     </div>`;
-  }).join("") || `<p class="hint">할 일이 없습니다.</p>`;
+  };
+  const isActive = (t) => isOpen(t) || t.status === "DELEGATED";
+  const active = sorted(day.tasks).filter(isActive);
+  const closed = sorted(day.tasks).filter((t) => !isActive(t));
+  const doneCount = closed.filter((t) => t.status === "DONE").length;
+  const otherCount = closed.length - doneCount;
+  $("tasks").innerHTML = (active.map(taskRow).join("") ||
+      (day.tasks.length ? `<p class="hint">오늘 할 일을 모두 마쳤습니다 ✓</p>` : `<p class="hint">할 일이 없습니다.</p>`)) +
+    (closed.length ? `<details class="closed" ${state.showClosed ? "open" : ""}>
+      <summary>완료한 일 ${doneCount}개${otherCount ? ` · 이월·삭제 ${otherCount}개` : ""}</summary>
+      ${closed.map(taskRow).join("")}</details>` : "");
+  $("tasks").querySelector("details.closed")?.addEventListener("toggle", (e) => { state.showClosed = e.target.open; });
 
   $("appts").innerHTML = [...day.appointments].sort((a, b) => a.time.localeCompare(b.time)).map((a) =>
     `<div class="appt" data-id="${a.id}"><span class="time">${esc(a.time)}</span><span>${esc(a.title)}</span><button class="del" title="삭제">✕</button></div>`,
